@@ -525,3 +525,9 @@ button.mini-card:hover, button.mini-card:focus-visible, a.mini-card:hover, a.min
 .showreel-video-frame { width:100%; aspect-ratio:16/9; background:#000; }
 .showreel-video-frame iframe { width:100%; height:100%; border:0; display:block; }
 .film-credit-year.film-credit-last { border-bottom:0; }
+
+/* v45: avoid expensive full-viewport backdrop blur during embedded playback.
+   Preserve the existing dark modal overlay and all normal page styling. */
+html.video-playing .video-modal::backdrop,
+html.video-playing .film-video-modal::backdrop,
+html.video-playing .project-modal::backdrop { backdrop-filter: none; }

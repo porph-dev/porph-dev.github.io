@@ -162,6 +162,7 @@ function openProject(id) {
   projectThumbs.querySelectorAll('[data-image-index]').forEach(btn => btn.addEventListener('click', () => setProjectImage(project, Number(btn.dataset.imageIndex))));
   setProjectImage(project,0);
   projectModal.showModal();
+  syncVideoPlaybackState();
 }
 
 function stopProjectVideo() { projectVideo.innerHTML = ''; }
@@ -228,6 +229,7 @@ const showreelUrl = 'https://www.youtube-nocookie.com/embed/FY8512cfIw8?autoplay
 document.querySelectorAll('[data-open-video]').forEach(el => el.addEventListener('click', () => {
   showreelFrame.src = showreelUrl;
   modal.showModal();
+  syncVideoPlaybackState();
 }));
 function closeShowreel() {
   showreelFrame.src = '';
@@ -243,11 +245,28 @@ const limboFrame = limboModal?.querySelector('[data-limbo-frame]');
 document.querySelectorAll('[data-open-limbo]').forEach(el => el.addEventListener('click', () => {
   limboFrame.src = 'https://player.vimeo.com/video/305061992?autoplay=1&title=0&byline=0&portrait=0';
   limboModal.showModal();
+  syncVideoPlaybackState();
 }));
 function closeLimbo(){ if(limboFrame) limboFrame.src=''; if(limboModal?.open) limboModal.close(); }
 document.querySelector('[data-close-limbo]')?.addEventListener('click', closeLimbo);
 limboModal?.addEventListener('click', e => { if(e.target === limboModal) closeLimbo(); });
 limboModal?.addEventListener('close', () => { if(limboFrame) limboFrame.src=''; });
+
+// v45: Suspend background animation while an embedded video is visible.
+// The browser can then prioritize decoding and compositing the iframe video.
+const videoModalSelector = '#video-modal, #limbo-modal, #project-modal';
+function videoModalActive() {
+  return [...document.querySelectorAll(videoModalSelector)].some(dialog => dialog.open);
+}
+function syncVideoPlaybackState() {
+  const active = videoModalActive();
+  document.documentElement.classList.toggle('video-playing', active);
+  document.dispatchEvent(new Event('portfolio-video-state'));
+}
+for (const dialog of document.querySelectorAll(videoModalSelector)) {
+  dialog.addEventListener('close', syncVideoPlaybackState);
+  dialog.addEventListener('cancel', () => requestAnimationFrame(syncVideoPlaybackState));
+}
 
 // Selected work: true transform-based marquee + manual navigation.
 // This deliberately does NOT use scrollLeft. The first implementation that visibly moved
@@ -306,7 +325,7 @@ if (workCarousel) {
       const idx = Math.min(originalCards.length - 1, Math.floor(ratio * originalCards.length));
       count.textContent = `${String(idx + 1).padStart(2,'0')} / ${String(originalCards.length).padStart(2,'0')}`;
     }
-    statusFrame = requestAnimationFrame(updateWorkStatus);
+    if (!videoModalActive() && !document.hidden) statusFrame = requestAnimationFrame(updateWorkStatus);
   }
 
   function startMarquee(preserveRatio = 0) {
@@ -323,11 +342,11 @@ if (workCarousel) {
       { duration, iterations: Infinity, easing: 'linear' }
     );
     marquee.currentTime = preserveRatio * duration;
-    marquee.play();
+    if (!videoModalActive() && !document.hidden) marquee.play();
   }
 
   function canResumeMarquee() {
-    return !hoverPaused && !focusPaused;
+    return !hoverPaused && !focusPaused && !videoModalActive() && !document.hidden;
   }
 
   function pauseThenResume(ms = 1500) {
@@ -378,6 +397,21 @@ if (workCarousel) {
     if (canResumeMarquee()) marquee?.play();
   });
 
+  function syncMarqueeActivity() {
+    if (videoModalActive() || document.hidden) {
+      marquee?.pause();
+      if (statusFrame) cancelAnimationFrame(statusFrame);
+      statusFrame = null;
+    } else {
+      if (canResumeMarquee()) marquee?.play();
+      if (statusFrame) cancelAnimationFrame(statusFrame);
+      statusFrame = null;
+      updateWorkStatus();
+    }
+  }
+  document.addEventListener('portfolio-video-state', syncMarqueeActivity);
+  document.addEventListener('visibilitychange', syncMarqueeActivity);
+
   function attachArtworkFallbacks(root = workCarousel) {
     root.querySelectorAll('.work-art img').forEach(img => {
       if (img.dataset.fallbackBound) return;
@@ -403,7 +437,7 @@ if (workCarousel) {
   requestAnimationFrame(() => {
     startMarquee(0);
     if (statusFrame) cancelAnimationFrame(statusFrame);
-    updateWorkStatus();
+    syncMarqueeActivity();
   });
   window.addEventListener('load', rebuildMarquee, { once: true });
   window.addEventListener('resize', rebuildMarquee);
